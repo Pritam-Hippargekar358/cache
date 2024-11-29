@@ -1,0 +1,734 @@
+Some of the Redis clients are:
+.............................
+Jedis(Java)
+Redisson(Java)
+Lettuce(Java)
+redis-py(Python)
+ioredis(Node.js)
+Ledis(Go)
+
+redisTemplate.opsForValue().set(cacheKey, data, 60, TimeUnit.SECONDS);
+
+RedisTemplate is better suited for use in Spring projects, offering easier operations and thread safety, while Jedis is more appropriate for non-Spring projects, providing operations closer to Redis’ original commands.
+
+<dependency>
+   <groupId>org.springframework.boot</groupId>
+   <artifactId>spring-boot-starter-cache</artifactId>
+</dependency>
+<dependency>
+   <groupId>org.springframework.boot</groupId>
+   <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+
+# Redis
+spring.cache.type=redis
+spring.cache.redis.cache-null-values=true
+#spring.cache.redis.time-to-live=40000
+
+spring.redis.host=compose-db
+spring.redis.port=6379
+spring.redis.password=# Set if using password
+
+
+
+https://ssjeong.tistory.com/entry/Spring-Redis-Jedis%EC%97%90%EC%84%9C-Lettuce%EB%A1%9C-%EB%B3%80%EA%B2%BD%ED%95%98%EA%B8%B0Lettuce-Config-%EC%84%B8%ED%8C%85
+
+Spring Boot's spring-boot-starter-data-redis starter brings Lettuce as the default Redis client. Since we want to switch to Jedis, we need to exclude Lettuce from the starter.
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+    <exclusions>
+        <exclusion>
+            <groupId>io.lettuce.core</groupId>
+            <artifactId>lettuce-core</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+
+
+
+
+
+
+
+
+
+
+@SpringBootApplication
+@EnableCaching
+public class RedisCacheApplication {
+
+   public static void main(String[] args) {
+      SpringApplication.run(RedisCacheApplication.class, args);
+   }
+}
+
+
+@Configuration
+@EnableCaching
+public class CacheConfig {
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+        redisTemplate.setConnectionFactory(redisConnectionFactory);
+
+        // Menggunakan Jackson2JsonRedisSerializer dengan konfigurasi default Jackson
+        Jackson2JsonRedisSerializer<Object> jsonSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
+        redisTemplate.setDefaultSerializer(jsonSerializer);
+        redisTemplate.setKeySerializer(redisTemplate.getStringSerializer());
+        redisTemplate.setValueSerializer(jsonSerializer);
+
+        return redisTemplate;
+    }
+
+    @Bean
+    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+        Jackson2JsonRedisSerializer<Object> jsonSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
+
+        RedisCacheConfiguration cacheConfiguration = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(60))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(jsonSerializer));
+
+        return RedisCacheManager.builder(redisConnectionFactory)
+                .cacheDefaults(cacheConfiguration)
+                .build();
+    }
+}
+
+@Bean
+    public RedisCacheConfiguration cacheConfiguration() {
+        return RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(10)) // Set TTL to 10 minutes
+                .disableCachingNullValues();
+    }
+
+@Bean
+public RedisCacheManagerBuilderCustomizer redisCacheManagerBuilderCustomizer() {
+    return (builder) -> builder
+            .withCacheConfiguration("key1",
+                    RedisCacheConfiguration.defaultCacheConfig()
+                            .entryTtl(Duration.ofMinutes(60))
+                            .disableCachingNullValues()
+                            .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer())))
+            .withCacheConfiguration("key2",
+            RedisCacheConfiguration.defaultCacheConfig()
+                    .entryTtl(Duration.ofMinutes(30))
+                    .disableCachingNullValues()
+                    .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer())));
+}
+
+@Bean
+public LettuceConnectionFactory lettuceConnectionFactory() {
+  RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+  config.setHostName("127.0.0.1");
+  config.setPort(6379); // Default port for Redis
+  config.setPassword(""); // Redis password, not set here
+  config.setDatabase(0); // Redis database index
+
+  GenericObjectPoolConfig poolConfig = new GenericObjectPoolConfig();
+  poolConfig.setMaxWaitMillis(3000); // Maximum wait time for obtaining a connection
+  poolConfig.setMaxIdle(8); // Maximum number of idle connections
+  poolConfig.setMinIdle(4); // Minimum number of idle connections
+  poolConfig.setMaxTotal(3000); // Maximum number of connections
+
+  LettucePoolingClientConfiguration poolingClientConfig =
+      LettucePoolingClientConfiguration.builder()
+      .commandTimeout(Duration.ofMillis("3000")) // Command timeout
+      .poolConfig(poolConfig)  // Set connection pool configuration
+      .build();
+
+  return new LettuceConnectionFactory(config, poolingClientConfig);
+}
+
+RedisTemplate defaults to using LettuceConnectionFactory.
+
+LettuceConnectionFactory uses a built-in connection pool by default (with a minimum of 8 and a maximum of 64 connections), but you can configure the connection pool properties through a GenericObjectPoolConfig object (as shown in the example code above). On the other hand, if you choose JedisConnectionFactory, you must explicitly configure the connection pool properties.
+
+The differences between LettuceClientConfiguration and LettucePoolingClientConfiguration are as follows:
+...........................................................................................................................................................................
+1) LettuceClientConfiguration: Suitable for a single Redis instance, allowing configuration of connection timeout, command timeout, SSL support, etc. However, it does not come with a default connection pool configuration.
+
+2) LettucePoolingClientConfiguration: Inherits from LettuceClientConfiguration and allows configuration of a connection pool. This enables sharing Redis connections among multiple threads and provides options to configure the pool's maximum connections, minimum idle connections, maximum idle connections, and maximum wait time. The choice between them depends on the specific needs of your project.
+
+@Bean
+public RedisTemplate<String, String> redisTemplate() {
+    RedisTemplate<String, String> redisTemplate = new RedisTemplate<>();
+    redisTemplate.setConnectionFactory(lettuceConnectionFactory());
+    redisTemplate.setDefaultSerializer(
+                       new Jackson2JsonRedisSerializer<>(Object.class));
+    redisTemplate.setEnableTransactionSupport(true);
+    redisTemplate.afterPropertiesSet();
+    return redisTemplate;
+}
+
+Set a Hashmap (with expiration time / without expiration time):
+..................................................................................................................
+public static void setHash(String key, Map<Object, Object> hashMap){
+    redisTemplate.opsForHash().putAll(key, hashMap);
+}
+public static void setHash(String key, Map<Object, Object> hashMap,
+                            Long expireTime){
+    redisTemplate.opsForHash().putAll(key, hashMap);
+    // You must set the expiration time after putting the value
+    // otherwise, the expiration time will not be set (returns -1)
+    redisTemplate.expire(key, Duration.ofMillis(expireTime));
+}
+Set a single key value in a Hashmap (with expiration time / without expiration time):
+..................................................................................................................
+public static void setSingleHash(String key, Object hashKey, Object hashVal){
+    redisTemplate.opsForHash().put(key, hashKey, hashVal);
+}
+public static void setSingleHash(String key, Object hashKey, Object hashVal,
+                                  Long expireTime){
+    redisTemplate.opsForHash().put(key, hashKey, hashVal);
+    redisTemplate.expire(key, Duration.ofMillis(expireTime));
+}
+Retrieve a Hashmap:
+..................................................................................................................
+public static Map<Object, Object> getHash(String key) {
+    HashOperations<String, Object, Object> hashOps = redisTemplate.opsForHash();
+    return hashOps.entries(key);
+}
+Retrieve a single key value from a Hashmap:
+..................................................................................................................
+public static Object getSingleHash(String key, String hashKey) {
+    HashOperations<String, Object, Object> hashOps = redisTemplate.opsForHash();
+    return hashOps.get(key, hashKey);
+}
+Delete a key:
+..................................................................................................................
+public static void deleteKey(String key) {
+    redisTemplate.delete(key);
+}
+Retrieve expiration time:
+..................................................................................................................
+public static long getExpireTime(String key){
+    return redisTemplate.getExpire(key);
+// The unit is seconds; -1: expiration time not set, -2: key does not exist.
+}
+Check if a key exists:
+..................................................................................................................
+public static boolean isKeyExist(String key){
+    return redisTemplate.hasKey(key);
+}
+
+@Configuration
+@EnableCaching
+public class RedisConfig {
+
+    @Value("${redis.host}")
+    private String host;
+
+    @Value("${redis.port}")
+    private int port;
+
+    @Value("${redis.cacheExpiry}")
+    private long cacheExpiry;
+
+    @Value("${redis.ssl}")
+    private boolean ssl;
+
+    @Bean
+    public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+        RedisCacheConfiguration cacheConfig =
+                RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofDays(cacheExpiry));
+
+        return RedisCacheManager.builder(connectionFactory)
+                .cacheDefaults(cacheConfig)
+                .build();
+    }
+
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        RedisStandaloneConfiguration redisStandaloneConfiguration = new RedisStandaloneConfiguration(host, port);
+        LettuceClientConfiguration.LettuceClientConfigurationBuilder lettuceClientBuilder =
+                LettuceClientConfiguration.builder();
+
+        LettuceClientConfiguration lettuceClientConfiguration;
+
+        if (ssl) {
+            lettuceClientConfiguration = lettuceClientBuilder.useSsl().build();
+        } else {
+            lettuceClientConfiguration = lettuceClientBuilder.build();
+        }
+
+        return new LettuceConnectionFactory(redisStandaloneConfiguration, lettuceClientConfiguration);
+    }
+
+
+    @Bean("checksumKeyGenerator")
+    public KeyGenerator keyGenerator() {
+        return new ChecksumKeyGenerator();
+    }
+}
+
+
+
+https://blog.devgenius.io/file-video-streaming-with-streamingresponsebody-spring-boot-maven-java-21-executor-3a824811bc9b
+
+https://github.com/vladyslav-marchenko/redis-app/blob/main/src/main/java/com/example/redis/repository/TokenRepositoryImpl.java
+public interface CacheConstants {
+    String TOKEN_CACHE = "tokenCache";
+    String CUSTOM_CACHE = "customCache";
+}
+
+difference between LettuceConnectionFactory and JedisConnectionFactory
+LettuceConnectionFactory:
+Uses Lettuce as the underlying Redis client.
+Lettuce is a scalable, thread-safe Redis client for Java.
+It provides a reactive, non-blocking API, making it suitable for reactive and asynchronous applications.
+Supports connection pooling, which can improve performance and scalability in multi-threaded environments.
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.lettuce.core</groupId>
+    <artifactId>lettuce-core</artifactId>
+</dependency>
+@Configuration
+public class RedisConfig {
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        return new LettuceConnectionFactory("localhost", 6379);
+    }
+}
+@Configuration
+public class Config {
+    @Bean
+    public LettuceConnectionFactory redisConnectionFactory() {
+        LettuceConnectionFactory lcf = new LettuceConnectionFactory();
+        lcf.setHostName("your_host_name_or_ip");
+        lcf.setPort(6379);
+        lcf.afterPropertiesSet();
+        return lcf;
+    }
+}
+
+JedisConnectionFactory:
+Uses Jedis as the underlying Redis client.
+Jedis is a simple, single-threaded Redis client for Java.
+It provides a blocking API, meaning each request blocks until a response is received.
+Does not natively support connection pooling. However, it is possible to use Jedis with connection pooling libraries like Apache Commons Pool.
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+<dependency>
+    <groupId>redis.clients</groupId>
+    <artifactId>jedis</artifactId>
+</dependency>
+@Configuration
+public class RedisConfig {
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory() {
+        return new JedisConnectionFactory();
+    }
+}
+@Configuration
+public class Config {
+    @Bean
+    public JedisConnectionFactory redisConnectionFactory() {
+        JedisConnectionFactory jedisConnectionFactory = new JedisConnectionFactory();
+        jedisConnectionFactory.setHostName("your_host_name_or_ip");
+        jedisConnectionFactory.setPort(6379);
+        jedisConnectionFactory.afterPropertiesSet();
+        return jedisConnectionFactory;
+    }
+}
+
+
+https://blog.devgenius.io/caching-in-spring-boot-redis-321a6db992c7
+<dependency>
+   <groupId>org.springframework.boot</groupId>
+   <artifactId>spring-boot-starter-cache</artifactId>
+</dependency>
+<dependency>
+   <groupId>redis.clients</groupId>
+   <artifactId>jedis</artifactId>
+   <version>${jedis.version}</version>
+</dependency>
+
+@Configuration
+@EnableCaching
+public class RedisCacheConfig {
+
+    @Bean
+    public RedisCacheConfiguration cacheConfiguration() {
+        return RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(10)) // Set TTL to 10 minutes
+                .disableCachingNullValues();
+    }
+
+	@Bean
+	public RedisCacheManagerBuilderCustomizer redisCacheManagerBuilderCustomizer() {
+		return (builder) -> builder
+				.withCacheConfiguration("key1",
+						RedisCacheConfiguration.defaultCacheConfig()
+								.entryTtl(Duration.ofMinutes(60))
+								.disableCachingNullValues()
+								.serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer())))
+				.withCacheConfiguration("key2",
+				RedisCacheConfiguration.defaultCacheConfig()
+						.entryTtl(Duration.ofMinutes(30))
+						.disableCachingNullValues()
+						.serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer())));
+	}
+}
+
+Primary Cache: Often implemented using in-memory caches like Ehcache or Caffeine. It is typically fast but may not be as scalable.
+
+Secondary Cache: Redis can serve as this layer, providing a scalable and persistent cache that can handle larger datasets and complex querying.
+
+
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-cache</artifactId>
+</dependency>
+
+application.properties
+....................................
+spring.cache.type=redis
+spring.data.redis.host: localhost
+spring.data.redis.port: 6379
+spring.data.redis.password: <redis_password>
+application.yml
+.........................
+spring:
+ cache:
+   type: redis
+ redis:
+   host: localhost
+   port: 6379
+
+@EnableCaching
+public class SpringApplication {
+}
+
+
+Create a Custom Cache Manager
+@Configuration
+public class RedisCacheConfig {
+	@Bean
+	CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
+		RedisCacheManager.RedisCacheManagerBuilder builder = RedisCacheManager.RedisCacheManagerBuilder
+				.fromConnectionFactory(redisConnectionFactory);
+		return builder.build();
+	}
+	@Bean
+	RedisConnectionFactory lettuceConnectionFactory() {
+		RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+		config.setUsername("username"); // update username
+		config.setPassword("password"); // update password
+		return new LettuceConnectionFactory(config);
+	}
+	@Bean
+	RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+		RedisTemplate<String, Object> template = new RedisTemplate<>();
+		template.setConnectionFactory(redisConnectionFactory);
+		template.setKeySerializer(new StringRedisSerializer(StandardCharsets.UTF_8));
+		template.setValueSerializer(new StringRedisSerializer(StandardCharsets.UTF_8));
+		return template;
+	}
+}
+@Transactional(readOnly = true)
+@Cacheable(value = "myCacheName", key = "#id")
+public String getDataById(String id) {
+	// Simulate a slow service call
+}
+@Transactional
+@CachePut(value="myCacheName", key="#id") //key = "#data.id"
+public Object updateDataById(String id, Data data)  {
+//some code
+}
+@Transactional
+@CacheEvict(value = "myCacheName", key = "#id", allEntries = true)
+public void deleteDataById(@PathVariable String id) {
+//some code
+}
+
+KEYS *
+
+
+@Cacheable(value = "user", key = "#username",unless="#result.size()==0")
+ @Override
+ public List<Map<String, Object>> getAttributes(String username) {
+   //Return from DB
+  }
+
+@Transactional(readOnly = true)
+    @Cacheable(value = "userList")
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+@Transactional
+    @CachePut(value = "userList") // Update user list cache
+    public List<User> refreshUserList() {
+        return userRepository.findAll();
+    }
+
+redisTemplate.opsForValue().set(key, user, 24, TimeUnit.HOURS);
+     Boolean isKeyExists = redisTemplate.hasKey(key);
+..................................................
+<!-- Spring Boot Starter Data Redis with Jedis -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>redis.clients</groupId>
+        <artifactId>jedis</artifactId>
+        <version>4.2.3</version>
+    </dependency>
+
+@Configuration
+@EnableCaching
+public class RedisCacheConfig {
+
+    @Bean
+    public JedisConnectionFactory jedisConnectionFactory() {
+        RedisStandaloneConfiguration redisConfig = new RedisStandaloneConfiguration("localhost", 6379);
+        JedisClientConfiguration clientConfig = JedisClientConfiguration.builder().build();
+        return new JedisConnectionFactory(redisConfig, clientConfig);
+    }
+
+    @Bean
+    public CacheManager cacheManager(JedisConnectionFactory jedisConnectionFactory) {
+        RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+        redisTemplate.setConnectionFactory(jedisConnectionFactory);
+        redisTemplate.setKeySerializer(new StringRedisSerializer());
+        redisTemplate.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        redisTemplate.afterPropertiesSet();
+
+        return org.springframework.data.redis.cache.RedisCacheManager.builder(jedisConnectionFactory)
+                .cacheDefaults(org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig())
+                .build();
+    }
+}
+
+@Component
+@RequiredArgsConstructor
+public class RedisService {
+    private final RedisTemplate<Object, Object> redisTemplate;
+
+    public <V> void set(String cacheName, String key, V value, long timeout, TimeUnit timeUnit) {
+        redisTemplate.opsForValue().set(cacheName+key, value);
+        redisTemplate.expire(cacheName+key, timeout, timeUnit);
+    }
+
+    public <V> V get(String cacheName) {
+        return (V) redisTemplate.opsForValue().get(cacheName);
+    }
+
+    public Boolean hasKey(String cacheName, String key) {
+        return redisTemplate.hasKey(cacheName+key);
+    }
+}
+
+public <T> T get(String key, Class<T> type) {
+        return (T) redisTemplate.opsForValue().get(key);
+    }
+
+    public <T> void put(String key, T value) {
+        redisTemplate.opsForValue().set(key, value, currentPolicy.getExpirationTime());
+    }
+
+
+
+@Configuration
+@EnableCaching
+public class CacheConfig {
+
+    @Bean
+    public CacheManager redisCacheManager(RedisConnectionFactory redisConnectionFactory) {
+        return RedisCacheManager.builder(redisConnectionFactory).build();
+    } // RedisCacheManager
+
+    @Bean
+    public CacheManager springCacheManager() {
+        return new ConcurrentMapCacheManager("studentCache");
+    } // SpringCacheManager
+}
+@Service
+public class StudentService {
+
+    @Cacheable(value = "studentCache", cacheManager = "redisCacheManager")
+    public Student getStudentById(Long id) {
+        // Retrieve Student from database or external service
+    }
+
+    @Cacheable(value = "studentCache", cacheManager = "springCacheManager")
+    public Student getStudentByName(String name) {
+        // Retrieve Student from database or external service
+    }
+}
+
+
+
+
+https://medium.com/javarevisited/caching-with-spring-boot-3-lettuce-and-redis-sentinel-5f6fab7e58f8
+spring.data.redis.port=26379
+spring.data.redis.password=
+spring.data.redis.sentinel.master=mymaster
+spring.data.redis.sentinel.nodes=localhost
+spring.cache.type=redis
+spring.cache.redis.cache-null-values=false
+spring.cache.redis.time-to-live=300000
+spring.data.redis.timeout=600ms
+
+RedisConfig.java
+
+package com.medium.ldapservice.config;
+
+import java.time.Duration;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
+import org.springframework.cache.Cache;
+import org.springframework.cache.annotation.CachingConfigurer;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.CacheErrorHandler;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisPassword;
+import org.springframework.data.redis.connection.RedisSentinelConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.GenericToStringSerializer;
+import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
+import io.lettuce.core.ReadFrom;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+@Configuration
+@EnableCaching
+@RequiredArgsConstructor
+public class RedisConfig implements CachingConfigurer {
+
+ @Value("${spring.cache.redis.time-to-live}")
+ private long redisTimeToLive;
+
+ @Value("${spring.data.redis.timeout}")
+ private Duration redisCommandTimeout;
+
+ private final RedisProperties redisProperties;
+
+ @Bean
+ protected LettuceConnectionFactory redisConnectionFactory() {
+  RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
+    .master(redisProperties.getSentinel().getMaster());
+  redisProperties.getSentinel().getNodes().forEach(s -> sentinelConfig.sentinel(s, redisProperties.getPort()));
+  sentinelConfig.setPassword(RedisPassword.of(redisProperties.getPassword()));
+
+  LettuceClientConfiguration clientConfig = LettuceClientConfiguration.builder()
+    .commandTimeout(redisCommandTimeout).readFrom(ReadFrom.REPLICA_PREFERRED).build();
+  return new LettuceConnectionFactory(sentinelConfig, clientConfig);
+ }
+
+ @Bean
+ public RedisTemplate<String, Object> redisTemplate() {
+  final RedisTemplate<String, Object> redisTemplate = new RedisTemplate<>();
+  redisTemplate.setKeySerializer(new StringRedisSerializer());
+  redisTemplate.setHashKeySerializer(new GenericToStringSerializer<>(Object.class));
+  redisTemplate.setHashValueSerializer(new JdkSerializationRedisSerializer());
+  redisTemplate.setValueSerializer(new JdkSerializationRedisSerializer());
+  redisTemplate.setConnectionFactory(redisConnectionFactory());
+  return redisTemplate;
+ }
+
+ @Override
+ @Bean
+ public RedisCacheManager cacheManager() {
+  return RedisCacheManager.builder(this.redisConnectionFactory()).cacheDefaults(this.cacheConfiguration())
+    .build();
+ }
+
+ @Bean
+ public RedisCacheConfiguration cacheConfiguration() {
+  return RedisCacheConfiguration.defaultCacheConfig().entryTtl(Duration.ofMinutes(redisTimeToLive))
+    .disableCachingNullValues()
+    .serializeValuesWith(SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+ }
+
+ @Override
+ public CacheErrorHandler errorHandler() {
+  return new CacheErrorHandler() {
+   @Override
+   public void handleCacheGetError(RuntimeException exception, Cache cache, Object key) {
+    log.info("Failure getting from cache: " + cache.getName() + ", exception: " + exception.toString());
+   }
+
+   @Override
+   public void handleCachePutError(RuntimeException exception, Cache cache, Object key, Object value) {
+    log.info("Failure putting into cache: " + cache.getName() + ", exception: " + exception.toString());
+   }
+
+   @Override
+   public void handleCacheEvictError(RuntimeException exception, Cache cache, Object key) {
+    log.info("Failure evicting from cache: " + cache.getName() + ", exception: " + exception.toString());
+   }
+
+   @Override
+   public void handleCacheClearError(RuntimeException exception, Cache cache) {
+    log.info("Failure clearing cache: " + cache.getName() + ", exception: " + exception.toString());
+   }
+  };
+ }
+
+}
+
+
+import static com.example.redis.constant.CacheConstants.TOKEN_CACHE;
+
+@Service
+@RequiredArgsConstructor
+public class TokenServiceImpl implements TokenService {
+
+    private final TokenRepository tokenRepository;
+    private final RedisConfig redisConfig;
+
+    @CacheEvict(value = TOKEN_CACHE, allEntries = true)
+    @CachePut(value = TOKEN_CACHE,
+      key = "#token.id",
+      unless = "#token != null")
+    @Override
+    public Token save(Token token) {
+        return tokenRepository.save(token);
+    }
+
+    @CacheEvict(value = TOKEN_CACHE,
+      key = "#tokenId"
+      condition = "#tokenId != null")
+    @Override
+    public void deleteById(UUID tokenId) {
+        tokenRepository.deleteById(tokenId);
+    }
+
+    @Cacheable(value = TOKEN_CACHE)
+    @Override
+    public List<Token> findAll() {
+        return tokenRepository.findAll();
+    }
+
+    @Cacheable(value = TOKEN_CACHE,
+      key = "#tokenId",
+      condition = "#tokenId != null",
+      unless = "#result == null OR #result.isEmpty()")
+    @Override
+    public Optional<Token> findById(UUID tokenId) {
+        return tokenRepository.findById(tokenId);
+    }
+}

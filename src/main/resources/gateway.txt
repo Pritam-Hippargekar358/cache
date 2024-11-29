@@ -1,0 +1,1150 @@
+<liquibase-plugin.password>Password123#@!</liquibase-plugin.password>
+
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+microServices
+
+
+ZmFiYmNiZjhkNDExMmVhMDNmNmIzYjZmMWQxYTZjYmE3NWQ5N2VkNjE3NjNhMzU3MmExYTZmYzFlYTMxOWRiZDE0YzcwODJlZjRkZTFhNTQ4M2U1YjdlMTM2MGUyNTUzM2FjZjViNWJiMWQwOWVmOGFjNTQyMmEyYjAzYTI3ZDA=
+
+https://medium.com/@gauravraisinghani1998/implementing-spring-cloud-gateway-a-comprehensive-guide-3498aaacfdca
+server:
+  servlet:
+    context-path: /
+  port:
+    5001
+spring:
+  application:
+    name: api-gateway-service
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 20000
+        response-timeout: 7s
+      routes:
+        - id: category-service
+          uri: lb://category-service
+          predicates:
+            - Path=/category/** , /category-service/v3/api-docs
+          filters:
+            - StripPrefix=1
+        - id: product-service
+          uri: lb://product-service
+          predicates:
+            - Path=/product/** , /product-service/v3/api-docs
+          filters:
+            - StripPrefix=1
+
+@Configuration
+public class GatewayConfig {
+    @Bean
+    public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+        return builder.routes()
+            .route(r -> r.path("/api/v1/data")
+                .uri("http://example1.com")
+                .id("data_route"))
+            .route(r -> r.host("*.mydomain.com")
+                .and()
+                .path("/special/**")
+                .uri("http://example2.com")
+                .id("special_route"))
+            .build();
+    }
+}
+@Component
+public class RequestAndResponseLogGlobalFilter implements GlobalFilter, Ordered {
+    private static final Logger logger = LogManager.getLogger(RequestAndResponseLogGlobalFilter.class);
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        logger.info("Pre Filter Logic: Request path: {}", exchange.getRequest().getPath().toString());
+        return chain.filter(exchange).then(Mono.fromRunnable(() -> {
+            logger.info("Post Filter Logic: HTTP Status Code: {}", exchange.getResponse().getStatusCode().toString());
+        }));
+    }
+
+    @Override
+    public int getOrder() {
+        return -1;
+    }
+}
+
+lb:// – stands for Load Balancer or Load Balanced.
+server.port=8080
+spring.application.name=api-gateway
+spring.main.web-application-type=reactive
+
+management.endpoints.web.exposure.include=*
+management.endpoints.web.cors.allowed-origins=true
+
+@RestController
+public class FallbackController {
+
+    @GetMapping(value = "/fallback")
+    public ResponseEntity<Object> fallback() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("message", "Gateway Timeout!");
+        return new ResponseEntity<>(
+            response,
+            HttpStatus.GATEWAY_TIMEOUT
+        );
+    }
+
+}
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: springboot-helloworld
+          uri: http://localhost:8081
+          predicates:
+            - Path=/springboot-helloworld/**
+          filters:
+            - RewritePath=/springboot-helloworld/(?<segment>/?.*),/api/$\{segment}
+            - name: CircuitBreaker
+              args:
+                name: fallbackcmd
+                fallbackUri: forward:/fallback
+http://localhost:8080/springboot-helloworld/
+@Configuration
+public class PreGlobalFilter implements GlobalFilter, Ordered {
+
+    @Autowired
+    private ModifyRequestBodyGatewayFilterFactory filterFactory;
+
+    public static final String ORIGINAL_REQUEST_BODY = "originalRequestBody";
+
+    @Override
+    public int getOrder() {
+        return NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER;
+    }
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        return filterFactory
+            .apply(new ModifyRequestBodyGatewayFilterFactory.Config()
+                .setRewriteFunction(String.class, String.class, (newExchange, body) -> {
+                    String originalBody = null;
+                    if (body != null) {
+                        originalBody = body;
+                    }
+
+                    exchange.getAttributes().put(ORIGINAL_REQUEST_BODY, originalBody);
+                    return Mono.just(originalBody);
+                }))
+            .filter(exchange, chain);
+    }
+
+}
+Purpose of Filters
+Modify requests: Change headers, body, or other attributes of incoming requests.
+Modify responses: Alter headers, body, or other attributes of outgoing responses.
+Add custom logic: Implement custom business logic or security measures.
+Handle errors: Implement error handling strategies.
+
+Common Types of Filters
+Global Filters:
+Applied to all requests passing through the gateway.
+Useful for common cross-cutting concerns like authentication, authorization, or logging.
+
+Route-Specific Filters:
+Applied to specific routes based on predicates.
+Used for route-specific customizations or security measures.
+
+@Component
+public class ModifyResponseBodyFilter implements RouteFilter {
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+	        ServerHttpRequest request = exchange.getRequest();
+
+        String ip = request.getRemoteAddress() != null ? request.getRemoteAddress().getAddress().getHostAddress() : "Unknown";
+
+        log.info("Request from IP: {}, Method: {}, Path: {}", ip, request.getMethodValue(), request.getPath());
+
+        String realIp = request.getHeaders().getFirst("X-Forwarded-For");
+        log.info("X-Forwarded-For: {}", realIp);
+
+        return chain.filter(exchange)
+                .then(Mono.fromCallable(()
+ -> {
+                    ServerHttpResponse response = exchange.getResponse();
+                    DataBufferFactory dataBufferFactory = response.bufferFactory();
+                    String originalBody = exchange.getResponse().getBody().asInputStream().readAllBytes().toString();
+                    String modifiedBody = "Modified body: " + originalBody;
+                    DataBuffer dataBuffer = dataBufferFactory.wrap(modifiedBody.getBytes());
+                    response.getBody().write(dataBuffer);
+                    return Mono.empty();
+                }));
+    }
+}
+
+spring:
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lowerCaseServiceId: true
+
+
+
+@Slf4j
+@Configuration
+public class PostGlobalFilter implements GlobalFilter, Ordered {
+
+    @Autowired
+    private ModifyResponseBodyGatewayFilterFactory filterFactory;
+
+    public static final String ORIGINAL_RESPONSE_BODY = "originalResponseBody";
+
+    @Override
+    public int getOrder() {
+        return NettyWriteResponseFilter.WRITE_RESPONSE_FILTER_ORDER + 1;
+    }
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        GatewayFilter delegate = filterFactory
+            .apply(new ModifyResponseBodyGatewayFilterFactory.Config()
+                .setRewriteFunction(byte[].class, byte[].class, (newExchange, body) -> {
+                    String originalBody = null;
+                    if (body != null) {
+                        originalBody = new String(body);
+                    }
+
+                    exchange.getAttributes().put(ORIGINAL_RESPONSE_BODY, originalBody);
+                    return Mono.just(originalBody.getBytes());
+                }));
+        return delegate
+            .filter(exchange, chain)
+            .then(Mono.fromRunnable(() -> {
+                this.writeLog(exchange);
+            }));
+    }
+
+    private void writeLog(ServerWebExchange exchange) {
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
+
+        String requestBody = exchange.getAttribute(PreGlobalFilter.ORIGINAL_REQUEST_BODY);
+        String responseBody = exchange.getAttribute(PostGlobalFilter.ORIGINAL_RESPONSE_BODY);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n");
+
+        URI uri = exchange.getAttribute(ServerWebExchangeUtils.GATEWAY_REQUEST_URL_ATTR);
+        sb.append("URI: ").append(uri).append("\n");
+        sb.append("Method: ").append(request.getMethod()).append("\n");
+        sb.append("Request Headers: ");
+
+        request.getHeaders().forEach((key, value) -> {
+            sb.append(key).append("=").append(value).append(", ");
+        });
+        sb.append("\n");
+        sb.append("Request Body: ").append(requestBody).append("\n");
+
+        sb.append("\n");
+        sb.append("Response Status: ").append(response.getRawStatusCode()).append("\n");
+        sb.append("Response Headers: ");
+        response.getHeaders().forEach((key, value) -> {
+            sb.append(key).append("=").append(value).append(", ");
+        });
+        sb.append("\n");
+        sb.append("Response Body: ").append(responseBody).append("\n");
+
+        log.info(sb.toString());
+        exchange.getAttributes().remove(PreGlobalFilter.ORIGINAL_REQUEST_BODY);
+        exchange.getAttributes().remove(PostGlobalFilter.ORIGINAL_RESPONSE_BODY);
+    }
+
+}
+
+@Configuration
+public class GatewayConfig {
+    @Bean
+    public GlobalFilter addRequestHeaderFilter() {
+        return (exchange, chain) -> {
+            ServerHttpRequest updatedRequest = exchange.getRequest()
+                .mutate()
+                .header("X-Response-Default-Foo", "Default-Bar")
+                .build();
+
+            return chain.filter(exchange.mutate().request(updatedRequest).build());
+        };
+    }
+}
+
+@Configuration
+public class GatewayConfiguration {
+
+    @Bean
+    public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+        return builder.routes()
+            .route(p -> p
+                .path("/get")
+                // Adding a complex predicate that includes both host and path conditions
+                .predicate(host("**.abc.org").and(path("/image/png")))
+                .filters(f -> f.addRequestHeader("Header-Name", "Header-Value"))
+                .uri("http://httpbin.org:80"))
+            .build();
+    }
+}
+spring:
+  cloud:
+  gateway:
+    routes:
+      - id: route-with-complex-predicate
+        uri: http://httpbin.org:80
+        predicates:
+          - Path=/get
+          - Host=**.abc.org
+          - Path=/image/png
+        filters:
+          - AddRequestHeader=Header-Name, Header-Value
+
+.route(r -> r.host("**.circuitbreaker.com")
+    .filters(f -> f.circuitBreaker(c -> c.setName("myCircuitBreaker").setFallbackUri("forward:/fallback")))
+    .uri("http://httpbin.org/delay/3"))
+.build();
+
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: fallback_route
+          uri: http://primary-service
+          predicates:
+            - Path=/service/**
+          filters:
+            - name: myCircuitBreaker
+              args:
+                name: fallback_cmd
+                fallbackUri: forward:/fallback
+
+public Customizer<ReactiveResilience4JCircuitBreakerFactory> defaultCustomizer() {
+        return factory -> factory.configureDefault(id -> new Resilience4JConfigBuilder(id)
+                .circuitBreakerConfig(CircuitBreakerConfig.custom()
+                        .failureRateThreshold(50)
+                        .slidingWindowSize(20)
+                        .minimumNumberOfCalls(10)
+                        .waitDurationInOpenState(Duration.ofSeconds(10))
+                        .build())
+                .timeLimiterConfig(TimeLimiterConfig.custom()
+                        .timeoutDuration(Duration.ofSeconds(5))
+                         .build())
+                 .build());
+    }
+
+https://medium.com/@jayaramanan.kumar/getting-started-with-spring-cloud-gateway-part-two-c611c5877a08
+
+https://medium.com/@mehdiyevilkin/what-is-api-gateway-exactly-spring-cloud-gateway-3c43b269e3ab
+
+https://neesri.medium.com/securing-microservices-with-jwt-spring-security-and-fault-tolerance-using-spring-cloud-gateway-8e5cdb59cd7b
+
+https://mayankposts.medium.com/adding-security-to-micro-services-spring-boot-gateway-filter-jwt-authentication-part-2-4ba8cb572312
+
+@Configuration
+public class GatewayConfig {
+    @Bean
+    public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+        return builder.routes()
+            .route("example_route", r -> r.path("/example/**")
+                .filters(f -> f.addRequestHeader("X-Example", "Value")
+                               .rewritePath("/example/(?<segment>.*)", "/${segment}"))
+                .uri("http://example.com"))
+            .build();
+    }
+}
+
+
+@Configuration
+public class GatewayConfig {
+
+    @Bean
+    public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+        return builder.routes()
+                .route("service-a", r -> r.order(1)
+                        .path("/a/**")
+                        .filters(f -> f.stripPrefix(1))
+                        .uri("http://127.0.0.1:8080"))
+                .route("service-bcd", r -> r.path("/b/**")
+                        .or().path("/c/**")
+                        .or().path("/d/**")
+                        .uri("http://127.0.0.1:8081"))
+                .build();
+    }
+}
+StripPrefix=1 means removing several levels of prefixes. For example, in the above configuration, our access http://127.0.0.1:8000/a/testwill be forwarded to http://127.0.0.1:8080/test.
+
+
+
+- id: strip_prefix_route
+        uri: http://localhost:8080
+        predicates:
+        - Path=/gateway/**
+        filters:
+        - StripPrefix=1
+curl http://localhost:8088/gateway/say/
+This is equivalent to initiating the request:
+curl http://localhost:8080/say/
+
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: prefix_path_route
+        uri: http://localhost:8080
+        predicates:
+        - Method=GET
+        filters:
+        - PrefixPath=/user
+curl http://localhost:8088/gateway/say
+This is equivalent to initiating the request:
+ curl http://localhost:8080/user/gateway/say/
+
+        - id: retry_route
+          uri: http://localhost:8080
+          predicates:
+            - Method=GET
+          filters:
+            - name: Retry
+              args:
+                retries: 1
+                statuses: BAD_GATEWAY
+                backoff:
+                  firstBackoff: 10ms
+                  maxBackoff: 50ms
+                  factor: 2
+                  basedOnPreviousValue: false
+
+
+
+
+
+server:
+  port: 9002
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://127.0.0.1:8761/eureka/,http://127.0.0.1:8762/eureka/
+  instance:
+    prefer-ip-address: true
+
+spring:
+  application:
+    name: gateway-9002
+  cloud:
+    config:
+      discovery:
+        enabled: true
+        service-id: config-bus-9006
+    gateway:
+      routes:
+        - id: lagou-service-user
+          uri: lb://lagou-service-user
+          predicates:
+            - Path=/api/user/**
+        - id: lagou-service-code
+          uri: lb://lagou-service-code
+          predicates:
+            - Path=/api/code/**
+
+            HttpHeaders headers = request.getHeaders();
+            String userToken = headers.getFirst(USER_TOKEN);
+            if(StringUtils.isEmpty(userToken)){
+                ServerHttpResponse response = exchange.getResponse();
+                response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+                response.setStatusCode(HttpStatus.UNAUTHORIZED);
+
+                Map<String, Object> bodyMap = new HashMap<>();
+                bodyMap.put("code",-1000003);
+                bodyMap.put("message","未登录");
+
+                byte[] responseByteArray = JSON.toJSONBytes(bodyMap);
+                DataBuffer responseBuffer = response.bufferFactory().allocateBuffer(responseByteArray.length).write(responseByteArray);
+                return response.writeWith(Mono.just(responseBuffer));
+            }
+
+The difference between traffic gateway and service gateway:
+Traffic gateways (such as Nignx) provide global policies that are independent of backend business applications, such as HTTPS certificate unloading, Web firewalls, and global traffic monitoring.
+
+Microservice gateways (such as Spring Cloud Gateway) are tightly coupled with businesses and provide policies at the level of a single business domain, such as service governance and identity authentication. In other words, the traffic gateway is responsible for north-south traffic scheduling and security protection, and the microservice gateway is responsible for east-west traffic scheduling and service governance.
+
+spring:
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin, RETAIN_UNIQUE
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedHeaders: '*'
+            allowedMethods: '*'
+            allowedOrigins: '*'
+      routes:
+        - id: path_route
+          uri: lb://user-service
+          predicates:
+            - Path=/user/get/{id}
+
+public class RequestTimeFilter implements GatewayFilter, Ordered {
+
+    private static final Log log = LogFactory.getLog(GatewayFilter.class);
+    private static final String REQUEST_TIME_BEGIN = "requestTimeBegin";
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+
+        exchange.getAttributes().put(REQUEST_TIME_BEGIN, System.currentTimeMillis());
+        return chain.filter(exchange).then(
+                Mono.fromRunnable(() -> {
+                    Long startTime = exchange.getAttribute(REQUEST_TIME_BEGIN);
+                    if (startTime != null) {
+                        log.info(exchange.getRequest().getURI().getRawPath() + ": " + (System.currentTimeMillis() - startTime) + "ms");
+                    }
+                })
+        );
+
+    }
+
+    @Override
+    public int getOrder() {
+        return 0;
+    }
+}
+
+Reactor corresponds to the traditional MVC configuration:
+
+
+https://juejin.cn/post/6938699087931768839?searchId=2024112813275673897802E19087A14173
+webfluxmvceffect@EnableWebFluxSecurity@EnableWebSecurityEnable security configurationServerAuthenticationSuccessHandlerAuthenticationSuccessHandlerLogin Success HandlerServerAuthenticationFailureHandlerAuthenticationFailureHandlerLogin Failure HandlerReactiveAuthorizationManagerAuthorizationManagerCertification ManagementServerSecurityContextRepositorySecurityContextHolderAuthentication information storage managementReactiveUserDetailsServiceUserDetailsServiceUser loginReactiveAuthorizationManagerAccessDecisionManagerAuthentication ManagementServerAuthenticationEntryPointAuthenticationEntryPointUnauthenticated HandlerServerAccessDeniedHandlerAccessDeniedHandlerAuthentication failure Handler
+
+spring:
+  cloud:
+    gateway:
+      routes:
+      id: auth-service
+        uri: http://auth-service
+        predicates:
+        Path=/auth/**
+      id: other-service
+        uri: http://other-service
+        predicates:
+        Path=/other/**
+      globalFilters:
+      name: TokenAuthFilter
+        args:
+          tokenHeader: Authorization
+          excludedUrls:
+          - "/auth/login"
+          - "/auth/register"
+
+@Component
+public class TokenAuthFilter implements GatewayFilter, Ordered {
+
+    private final String tokenHeader;
+    private final List<String> excludedUrls;
+
+    public TokenAuthFilter(@Value("${spring.cloud.gateway.globalFilters.TokenAuthFilter.tokenHeader}") String tokenHeader,
+                          @Value("${spring.cloud.gateway.globalFilters.TokenAuthFilter.excludedUrls}") List<String> excludedUrls) {
+        this.tokenHeader = tokenHeader;
+        this.excludedUrls = excludedUrls;
+    }
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+
+        String path = exchange.getRequest().getURI().getPath();
+        if (excludedUrls.contains(path)) {
+            return chain.filter(exchange);
+        }
+
+        String token = exchange.getRequest().getHeaders().getFirst(tokenHeader);
+
+        if (isValidToken(token)) {
+            return chain.filter(exchange);
+        } else {
+            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+            return exchange.getResponse().setComplete();
+        }
+
+    }
+
+    private boolean isValidToken(String token) {
+        return token != null && token.equals("valid_token");
+    }
+
+    @Override
+    public int getOrder() {
+        return 10;
+    }
+
+}
+
+@ControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(WebFilterException.class)
+    public ResponseEntity<ErrorResponse> handleWebFilterException(WebFilterException ex) {
+
+        ErrorResponse errorResponse = new ErrorResponse(HttpStatus.UNAUTHORIZED.value(), "Unauthorized");
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
+
+    }
+
+    //
+
+}
+https://juejin.cn/post/7329332843398250496?searchId=2024112813275673897802E19087A14173
+
+
+
+
+
+@Component
+public class IPCheckFilter implements GlobalFilter, Ordered {
+
+    public static final List<String> BLACK_LIST = Arrays.asList("127.0.0.1","8.120.3.58");
+
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+
+
+        ServerHttpRequest request = exchange.getRequest();
+
+        String hostString = request.getHeaders().getHost().getHostString();
+
+        if (!BLACK_LIST.contains(hostString)) {
+            return chain.filter(exchange);
+        }
+
+        ServerHttpResponse response = exchange.getResponse();
+        response.getHeaders().set("content-type", "application/json;charset=utf-8");
+
+        HashMap<String, Object> result = new HashMap<>(4);
+        result.put("code",601);
+        result.put("msg","XXX");
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        byte[] bytes = new byte[0];
+        try {
+            bytes = objectMapper.writeValueAsBytes(result);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+
+        DataBuffer wrap = response.bufferFactory().wrap(bytes);
+
+        return response.writeWith(Mono.just(wrap));
+
+//        return chain.filter(exchange);
+    }
+
+    @Override
+    public int getOrder() {
+        return 2;
+    }
+}
+@Component
+public class TokenCheckFilter implements GlobalFilter, Ordered {
+    public static final List<String> ALLOW_URL = Arrays.asList("/login-service/doLogin","/myUrl","/doLogin");
+
+    @Autowired
+    public StringRedisTemplate redisTemplate;
+
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        ServerHttpRequest request = exchange.getRequest();
+        String path = request.getURI().getPath();
+        if (ALLOW_URL.contains(path)) {
+            return chain.filter(exchange);
+        }
+
+        HttpHeaders headers = request.getHeaders();
+        List<String> authorization = headers.get("Authorization");
+        if (!CollectionUtils.isEmpty(authorization)) {
+            String token = authorization.get(0);
+            if (StringUtils.hasText(token)) {
+                String realtoken = token.replaceFirst("bearer ", "");
+                if (StringUtils.hasText(realtoken) && redisTemplate.hasKey(realtoken)) {
+                    return chain.filter(exchange);
+                }
+
+            }
+
+        }
+
+        ServerHttpResponse response = exchange.getResponse();
+        response.getHeaders().set("content-type","application/json;charset=utf-8");
+
+        HashMap<String, Object> result = new HashMap<>(4);
+        result.put("code", HttpStatus.UNAUTHORIZED.value());
+        result.put("msg","未授权token");
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        byte[] bytes = new byte[0];
+        try {
+            bytes = objectMapper.writeValueAsBytes(result);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+
+        DataBuffer wrap = response.bufferFactory().wrap(bytes);
+        return response.writeWith(Mono.just(wrap));
+    }
+
+    @Override
+    public int getOrder() {
+        return 0;
+    }
+}
+
+
+
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+</dependency>
+
+@Configuration
+public class RequestLimitConfig {
+    /**
+     * Consider marking one of the beans as @Primary, updating the consumer to accept multiple beans, or using @Qualifier to identify the bean that should be consumed
+     */
+
+    @Bean
+    @Primary
+    public KeyResolver ipKeyResolver() {
+        return exchange -> Mono.just(exchange.getRequest().getHeaders().getHost().getHostString());
+    }
+
+
+    @Bean
+    public KeyResolver apiKeyResolver() {
+        return exchange -> Mono.just(exchange.getRequest().getPath().value());
+    }
+}
+spring:
+  application:
+    name: gateway-server
+  cloud:
+    gateway:
+      enabled: true
+      routes:
+        - id: login-service-route
+          uri: http://localhost:8088
+          predicates:
+            - Path=/doLogin
+            - After=2022-10-09T17:18:39.831+08:00[Asia/Shanghai]
+            - Method=GET,POST
+#            - Query=name,admin.
+#            - Path=/mySerivice/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: '#{@ipKeyResolver}'
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 3
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+#      globalcors:
+#          corsConfigurations:
+#              '[/**]':
+#                  allowCredentials: true
+#                  allowedHeaders: '*'
+#                  allowedMethods: '*'
+#                  allowedOrigins: '*'
+
+public class CorsConfig {
+    @Bean
+    public CorsWebFilter corsWebFilter() {
+        CorsConfiguration cors = new CorsConfiguration();
+        cors.addAllowedHeader("*");
+        cors.addAllowedMethod("*");
+        cors.addAllowedOrigin("*");
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource(new PathPatternParser());
+        source.registerCorsConfiguration("/**",cors);
+        return new CorsWebFilter(source);
+    }
+}
+
+public class EventData {
+    // Define your event data fields and methods here
+}
+public class EventDto<T extends EventData> {、
+    private String eventKey;
+    private String topic;
+    private String messagesId;
+    private T data;
+
+    // Getters and Setters
+}
+
+// Response
+@Getter
+public class GWErrorResponse {
+    private String errorMessage;
+    private LocalDateTime localDateTime;
+    private Map<String, Object> addtionInfos = new HashMap<>();
+
+    public GWErrorResponse(String errorMessage, LocalDateTime localDateTime) {
+        this.errorMessage = errorMessage;
+        this.localDateTime = localDateTime;
+    }
+
+    public static GWErrorResponse defaultBuild(String errorMessage) {
+        return new GWErrorResponse(errorMessage, LocalDateTime.now());
+    }
+
+}
+
+// ExceptionHandler
+@Slf4j
+@Order(-1)
+@RequiredArgsConstructor
+//@Component
+public class GlobalExceptionHandler implements ErrorWebExceptionHandler {
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public Mono<Void> handle(ServerWebExchange exchange, Throwable ex) {
+        ServerHttpResponse response = exchange.getResponse();
+
+        if (response.isCommitted()) {
+            return Mono.error(ex);
+        }
+
+        //header
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+
+        if (ex instanceof ResponseStatusException) {
+            response.setStatusCode(((ResponseStatusException) ex).getStatus());
+        }
+
+        return response
+                .writeWith(Mono.fromSupplier(() -> {
+                    DataBufferFactory bufferFactory = response.bufferFactory();
+                    try {
+                        GWErrorResponse gwErrorResponse = GWErrorResponse.defaultBuild(ex.getMessage());
+                        byte[] errorResponse = objectMapper.writeValueAsBytes(gwErrorResponse);
+                        return bufferFactory.wrap(errorResponse);
+                    } catch (Exception e) {
+                        log.error("error", e);
+                        return bufferFactory.wrap(new byte[0]);
+                    }
+                }));
+    }
+}
+
+private Mono<Void> handleException(ServerWebExchange exchange, HttpStatus status) {
+        ServerHttpResponse response = exchange.getResponse();
+        StringBuffer apiResult = null;
+        byte [] bytes = null;
+        DataBuffer dataBuffer = response.bufferFactory().wrap(bytes);
+        response.setStatusCode(status);
+        response.getHeaders().add(HttpHeaders.CONTENT_TYPE, String.valueOf(MediaType.APPLICATION_JSON));
+        return response.writeWith(Mono.just(dataBuffer));
+    }
+	@Override
+    public GatewayFilter apply(Config config) {
+        return new OrderedGatewayFilter((exchange, chain) -> {
+        	//data 변환 조건
+        	if(true) {
+                DataBufferFactory bufferFactory = exchange.getResponse().bufferFactory();
+              	ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(response) {
+                	@Override
+                    public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+                        if (body instanceof Flux) {
+                            Flux<? extends DataBuffer> fluxBody = (Flux<? extends DataBuffer>) body;
+                            return super.writeWith(fluxBody.buffer().map(dataBuffers -> {
+                                DefaultDataBuffer joinedBuffers = new DefaultDataBufferFactory().join(dataBuffers);
+
+                                byte[] content = new byte[joinedBuffers.readableByteCount()];
+
+                                joinedBuffers.read(content);
+
+                                //
+                                String responseBody = new String(content, StandardCharsets.UTF_8);
+                                try {
+                                	/*
+                                    ///////////////////////////////////////////////////
+                                    // (byte[] type) content 원하는 양식으로 변경 후 재주입
+                                    ///////////////////////////////////////////////////
+                                    */
+                                    return bufferFactory.wrap(content);
+                                } catch (Exception e) {
+                                    // data 수정 없이 return
+                                    return joinedBuffers;
+                                }
+                            }));
+                        }
+                        return super.writeWith(body);
+                    }
+                };
+
+           		//new builded response
+                return chain.filter(exchange.mutate().response(decoratedResponse).build());
+            }
+
+            // 기존 return
+        	else{
+                return chain.filter(exchange);
+            }
+
+        // filter 우선 적용 (-2 >= x) or Ordered.HIGHEST_PRECEDENCE
+        }, -2);
+    }
+
+	//Custon filter
+@Component
+@Slf4j
+public class ApiCsvConvertFilter extends AbstractGatewayFilterFactory<ApiCsvConvertFilter.Config> {
+
+    @Autowired
+    private final AuthMapper authMapper;
+    ApiCsvConvertFilter(AuthMapper authMapper) {
+        super(ApiCsvConvertFilter.Config.class);
+        this.authMapper = authMapper;
+    }
+
+	@Override
+    public GatewayFilter apply(Config config) {
+        return new OrderedGatewayFilter((exchange, chain) -> {
+        	ServerHttpRequest request = exchange.getRequest();
+            ServerHttpResponse response = exchange.getResponse();
+
+            //권한 확인
+            HashMap<String, Object> map = new HashMap<String, Object>();
+            map.put("actionUrl", request.getURI().getPath().substring(4));
+            HashMap<String, Object> actionCheckMap = authMapper.checkActionUrlByUrl(map);
+
+        	//data 변환 조건
+        	if((exchange.getRequest().getQueryParams().containsKey("type")
+                    ? exchange.getRequest().getQueryParams().get("type").get(0).equals("csv")
+                    : false)
+                && actionCheckMap != null) {
+
+            	DataBufferFactory bufferFactory = exchange.getResponse().bufferFactory();
+              	ServerHttpResponseDecorator decoratedResponse = new ServerHttpResponseDecorator(response) {
+                	@Override
+                    public Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
+                        if (body instanceof Flux) {
+                            Flux<? extends DataBuffer> fluxBody = (Flux<? extends DataBuffer>) body;
+                            return super.writeWith(fluxBody.buffer().map(dataBuffers -> {
+                                DefaultDataBuffer joinedBuffers = new DefaultDataBufferFactory().join(dataBuffers);
+                                byte[] content = new byte[joinedBuffers.readableByteCount()];
+                                joinedBuffers.read(content);
+                                //
+                                String responseBody = new String(content, StandardCharsets.UTF_8);
+
+                                CsvSchema.Builder csvSchemaBuilder = CsvSchema.builder();
+
+                                ObjectMapper objectMapper = new ObjectMapper();
+                                try {
+                                    JsonNode jsonTree1 = objectMapper.readTree(responseBody);
+                                    JsonNode jsonTree = objectMapper.readTree(content);
+                                    JsonNode firstObject = jsonTree1.elements().next();
+                                    firstObject.fieldNames().forEachRemaining(csvSchemaBuilder::addColumn);
+                                    CsvSchema csvSchema = csvSchemaBuilder.build().withHeader();
+
+                                    CsvMapper csvMapper = new CsvMapper();
+                                    //
+                                    return bufferFactory.wrap(csvMapper.writerFor(JsonNode.class).with(csvSchema).writeValueAsBytes(jsonTree1));
+                                } catch (Exception e) {
+                                    log.error("Exception : {}", e.fillInStackTrace());
+                                    //
+                                    return joinedBuffers;
+                                }
+                            }));
+                        }
+                        return super.writeWith(body);
+                    }
+                };
+                try{
+                    List<String> header = request.getHeaders().get("User-Agent");
+                    String browser = "";
+                    if(header.get(0).indexOf("MSIE") > -1){
+                        browser = "MSIE";
+                    }
+                    else if(header.get(0).indexOf("Chrome") > -1){
+                        browser = "Chrome";
+                    }
+                    else if(header.get(0).indexOf("Opera") > -1){
+                        browser = "Opera";
+                    }
+                    else if(header.get(0).indexOf("Firefox") > -1){
+                        browser = "Firefox";
+                    }
+                    else if(header.get(0).indexOf("Mozilla") > -1){
+                        if(header.get(0).indexOf("Firefox") > -1){
+                            browser = "Firefox";
+                        }
+                        else{
+                            browser = "MSIE";
+                        }
+                    }
+                    else{
+                        browser = "MSIE";
+                    }
+
+                    String fileName = (String) actionCheckMap.get("api_name") + ".csv";
+                    String encodedFilename = "";
+
+                    if (browser.equals("MSIE")) {
+                        encodedFilename = URLEncoder.encode(fileName, "UTF-8").replaceAll("\\+", "%20");
+                    }
+                    else if(browser.equals("Firefox")) {
+                        encodedFilename = "\""
+                                + new String(fileName.getBytes("UTF-8"), "8859_1") + "\"";
+                    }
+                    else if (browser.equals("Opera")) {
+                        encodedFilename = "\""
+                                + new String(fileName.getBytes("UTF-8"), "8859_1") + "\"";
+                    }
+                    else if(browser.equals("Chrome")) {
+                        StringBuffer sb = new StringBuffer();
+                        for (int i = 0; i < fileName.length(); i++) {
+                            char c = fileName.charAt(i);
+                            if (c > '~') {
+                                sb.append(URLEncoder.encode("" + c, "UTF-8"));
+                            } else {
+                                sb.append(c);
+                            }
+                        }
+                        encodedFilename = sb.toString();
+                    }
+                    else {
+                        log.error("Exception : Not supported browser");
+                    }
+
+                    //response header content type 수정
+                    decoratedResponse.getHeaders().set("Set-Cookie", "fileDownload=true; path=/");
+                    decoratedResponse.getHeaders().set("Content-Disposition", "attachment; filename=" + encodedFilename);
+
+                    if("Opera".equals(browser)){
+                        decoratedResponse.getHeaders().setContentType(MediaType.APPLICATION_OCTET_STREAM);
+                    }
+                } catch (Exception e) {
+                    log.error("Exception : {}", e.fillInStackTrace());
+                    decoratedResponse.getHeaders().set("Set-Cookie", "fileDownload=true; path=/");
+                }
+
+           		//new builded response
+                return chain.filter(exchange.mutate().response(decoratedResponse).build());
+            }
+
+            // 기존 return
+        	else{
+                return chain.filter(exchange);
+            }
+
+        // filter 우선 적용 (-2 >= x) or Ordered.HIGHEST_PRECEDENCE
+        }, -2);
+    }
+	public static class Config {}
+}
+
+spring:
+  application:
+    name: apigateway
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - 'http://localhost:3000'
+              - 'https://localhost:3000'
+            allow-credentials: true
+            allowedHeaders:
+              - x-requested-with
+              - Authorization
+              - content-type
+              - credential
+              - X-AUTH-TOKEN
+              - X-CSRF-TOKEN  # 허용할 요청 헤더를 설정합니다.
+            exposedHeaders:
+              - x-requested-with
+              - Authorization
+              - content-type
+              - credential
+              - X-AUTH-TOKEN
+              - X-CSRF-TOKEN
+            allowedMethods:
+              - PUT
+              - GET
+              - POST
+              - DELETE
+              - OPTIONS
+
+
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:  # 기본 구성 이름
+        registerHealthIndicator: true  # 애플리케이션의 헬스 체크에 서킷 브레이커 상태를 추가하여 모니터링 가능
+
+        # 서킷 브레이커가 동작할 때 사용할 슬라이딩 윈도우의 타입을 설정
+        # COUNT_BASED: 마지막 N번의 호출 결과를 기반으로 상태를 결정
+        # TIME_BASED: 마지막 N초 동안의 호출 결과를 기반으로 상태를 결정
+        slidingWindowType: COUNT_BASED  # 슬라이딩 윈도우의 타입을 호출 수 기반(COUNT_BASED)으로 설정
+
+        # 슬라이딩 윈도우의 크기를 설정
+        # COUNT_BASED일 경우: 최근 N번의 호출을 저장
+        # TIME_BASED일 경우: 최근 N초 동안의 호출을 저장
+        slidingWindowSize: 5  # 슬라이딩 윈도우의 크기를 5번의 호출로 설정
+        minimumNumberOfCalls: 5  # 서킷 브레이커가 동작하기 위해 필요한 최소한의 호출 수를 5로 설정
+        slowCallRateThreshold: 100  # 느린 호출의 비율이 이 임계값(100%)을 초과하면 서킷 브레이커가 동작
+        slowCallDurationThreshold: 60000  # 느린 호출의 기준 시간(밀리초)으로, 60초 이상 걸리면 느린 호출로 간주
+        failureRateThreshold: 50  # 실패율이 이 임계값(50%)을 초과하면 서킷 브레이커가 동작
+        permittedNumberOfCallsInHalfOpenState: 3  # 서킷 브레이커가 Half-open 상태에서 허용하는 최대 호출 수를 3으로 설정
+
+        # 서킷 브레이커가 Open 상태에서 Half-open 상태로 전환되기 전에 기다리는 시간
+        waitDurationInOpenState: 20s  # Open 상태에서 Half-open 상태로 전환되기 전에 대기하는 시간을 20초로 설정
+
+    private Mono<Void> OnError(ServerWebExchange exchange, String err, HttpStatus httpStatus) {
+        ServerHttpResponse response = exchange.getResponse();
+        response.setStatusCode(httpStatus);
+
+        log.error(err);
+        return response.setComplete();
+    }
+
+
+
+    https://oril.co/blog/spring-cloud-gateway-security-with-jwt/
+
+
+    # Heap Memory Optimization
+    -Xms512m -Xmx1024m
+
+    # Use G1 Garbage Collector
+    -XX:+UseG1GC
+
+    # Enable Garbage Collection Logs
+    -Xlog:gc*,gc+cpu,gc+heap=info
+
+    # Ahead-of-Time Compilation (GraalVM)
+    native-image -jar app.jar
+
+    # Container-Specific Settings
+    -XX:+UseContainerSupport
+    -XX:MaxRAMPercentage=75
+
+    # Disable Biased Locking (For multi-threaded apps)
+    -XX:-UseBiasedLocking
+
+    # Enable Class Data Sharing
+    -Xshare:on
+
+    # Thread Pool Optimization
+    -XX:ParallelGCThreads=4 -XX:ConcGCThreads=2

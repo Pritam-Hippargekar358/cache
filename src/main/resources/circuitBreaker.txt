@@ -1,0 +1,327 @@
+Using OpenSearch with Java Client
+https://medium.com/@jobinesh/using-opensearch-with-java-client-712d1df4e553
+Using OpenSearch with Java Client
+
+
+// Create a custom configuration for a CircuitBreaker
+CircuitBreakerConfig circuitBreakerConfig = CircuitBreakerConfig.custom()
+  .failureRateThreshold(50)
+  .slowCallRateThreshold(50)
+  .waitDurationInOpenState(Duration.ofMillis(1000))
+  .slowCallDurationThreshold(Duration.ofSeconds(2))
+  .permittedNumberOfCallsInHalfOpenState(3)
+  .minimumNumberOfCalls(10)
+  .slidingWindowType(SlidingWindowType.TIME_BASED)
+  .slidingWindowSize(5)
+  .recordException(e -> INTERNAL_SERVER_ERROR
+                 .equals(getResponse().getStatus()))
+  .recordExceptions(IOException.class, TimeoutException.class)
+  .ignoreExceptions(BusinessException.class, OtherBusinessException.class)
+  .build();
+
+// Create a CircuitBreakerRegistry with a custom global configuration
+CircuitBreakerRegistry circuitBreakerRegistry =
+  CircuitBreakerRegistry.of(circuitBreakerConfig);
+
+// Get or create a CircuitBreaker from the CircuitBreakerRegistry
+// with the global default configuration
+CircuitBreaker circuitBreakerWithDefaultConfig =
+  circuitBreakerRegistry.circuitBreaker("name1");
+
+
+Count-based sliding window
+Time-based sliding window
+@Configuration
+public class CircuitBreakerConfiguration {
+
+    @Bean
+     CircuitBreakerRegistry circuitBreakerRegistry() {
+        return CircuitBreakerRegistry.of(configurationCircuitBreaker());
+    }
+
+    private CircuitBreakerConfig configurationCircuitBreaker() {
+        return CircuitBreakerConfig.custom()
+                .failureRateThreshold(40)
+                .waitDurationInOpenState(Duration.ofMillis(10000))
+                .permittedNumberOfCallsInHalfOpenState(3)
+                .slidingWindowSize(10)
+                .recordExceptions(RuntimeException.class)
+                .build();
+    }
+}
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class BetweenAandBCircuitBreaker {
+
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
+    private static CircuitBreaker circuitBreaker;
+
+    public synchronized CircuitBreaker addCircuitBreaker(String entryName) {
+        if (circuitBreaker == null) {
+            addRegistryEvent();
+            circuitBreaker = circuitBreakerRegistry.circuitBreaker(entryName);
+
+            circuitBreaker.getEventPublisher()
+                    .onSuccess(event -> log.info("success call A Method"))
+                    .onError(event -> log.error("fail call A Method"))
+                    .onIgnoredError(event -> log.info("ignore Exception occurred"))
+                    .onReset(event -> log.info("state is reset"))
+                    .onStateTransition(event -> log.info("change state result : {}", event.getStateTransition()));
+
+            return circuitBreaker;
+        }
+        return circuitBreaker;
+    }
+
+    private void addRegistryEvent() {
+        circuitBreakerRegistry.getEventPublisher()
+                .onEntryAdded(entryAddedEvent -> {
+                    CircuitBreaker addedEntry = entryAddedEvent.getAddedEntry();
+                    log.info("CircuitBreaker {} added", addedEntry.getName());
+                });
+    }
+}
+
+
+
+
+
+
+
+
+
+
+ Integration with Spring Cloud
+ spring:
+  application:
+    name: my-service
+  cloud:
+    circuitbreaker:
+      resilience4j:
+        enabled: true
+
+Applying Rate Limiter
+...................................................
+Rate Limiter provides the ability to limit the number of calls within a given period of time.
+This prevents the service from being overloaded with excessive requests.
+
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import org.springframework.stereotype.Service;
+@Service
+public class MyRateLimitedService {
+
+    @RateLimiter(name = "myRateLimitedService", fallbackMethod = "rateLimiterFallback")
+    public String processRequest() {
+        return "Request processed.";
+    }
+
+    public String rateLimiterFallback(Throwable t) {
+        return "Rate limit exceeded. Please try again later.";
+    }
+}
+application.yml
+..................................
+resilience4j:
+  ratelimiter:
+    instances:
+      myRateLimitedService:
+        limitForPeriod: 10
+        limitRefreshPeriod: 1s
+        timeoutDuration: 1000ms
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        minimumNumberOfCalls: 1
+        slidingWindowSize: 4
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 40
+        slowCallDurationThreshold: 3000ms
+        slowCallRateThreshold: 60
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        eventConsumerBufferSize: 10
+        registerHealthIndicator: true
+        recordExceptions:
+          - com.example.exception.ExternalApiException
+        ignoreExceptions:
+          - java.lang.IllegalStateException
+
+    instances:
+      simpleCircuitBreakerConfig:
+        baseConfig: default
+
+@Service
+class ExternalCBApieService(
+    private val externalClient: ExternalClient
+) : Log {
+    companion object {
+        const val DEFAULT_CB_CONFIG = "simpleCircuitBreakerConfig"
+    }
+
+    @CircuitBreaker(name = DEFAULT_CB_CONFIG, fallbackMethod = "fallBack")
+    fun requestApi(param: String): String {
+        return when (param) {
+            "OPEN" -> externalClient.requestEx(param)
+            "CLOSE" -> externalClient.requestEx(param)
+            "TIME_OUT" -> externalClient.timeout(param)
+            else -> throw IllegalArgumentException()
+        }
+    }
+
+    private fun fallBack(param: String, ex: ExternalApiException): String {
+        log.info("api response error, state is CLOSE -> OPEN")
+        return ex.message ?: ""
+    }
+
+    private fun fallBack(param: String, ex: CallNotPermittedException): String {
+        log.info("CB state is open, api is not permitted")
+        return ex.message ?: ""
+    }
+}
+@Configuration
+class ResilienceConfig : Log {
+    @Bean
+    fun circuitBreakerEventConsumer(): RegistryEventConsumer<CircuitBreaker> {
+        return object : RegistryEventConsumer<CircuitBreaker> {
+            override fun onEntryAddedEvent(entryAddedEvent: EntryAddedEvent<CircuitBreaker>) {
+                val eventPublisher = entryAddedEvent.addedEntry.eventPublisher
+
+                eventPublisher.onEvent { event -> log.info("{}", event) }
+                eventPublisher.onCallNotPermitted { event -> log.info("{}", event) } // open 상태에서 요청이 들어온 경우
+                eventPublisher.onStateTransition { event -> log.info("{}", event) } // state가 변경될 경우 // 다른 서버로 장애 전파할 때 사용할 수 있음
+                eventPublisher.onFailureRateExceeded { event -> log.info("{}", event.eventType) }
+            }
+
+            override fun onEntryRemovedEvent(entryRemoveEvent: EntryRemovedEvent<CircuitBreaker>) {
+                TODO("Not yet implemented")
+            }
+
+            override fun onEntryReplacedEvent(entryReplacedEvent: EntryReplacedEvent<CircuitBreaker>) {
+                TODO("Not yet implemented")
+            }
+        }
+    }
+}
+
+
+Applying Circuit Breaker
+...................................................
+Circuit Breaker is an implementation of the circuit breaker pattern,
+which is a function that blocks calls to prevent consecutive failures when an external service call fails.
+
+Automatically blocks service calls when the set conditions are met, and
+allows calls again after a certain period of time.
+
+Circuit Breaker Application Code
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class MyService {
+
+    private final RestTemplate restTemplate;
+
+    public MyService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    @CircuitBreaker(name = "myService", fallbackMethod = "fallback")
+    public String callExternalService() {
+        return restTemplate.getForObject("http://external-service/api/resource", String.class);
+    }
+
+    public String fallback(Throwable t) {
+        return "External service is unavailable. Please try again later.";
+    }
+}
+application.yml
+.....................................
+resilience4j:
+  circuitbreaker:
+    instances:
+      myService:
+        registerHealthIndicator: true
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10000
+
+
+Apply Retry
+...........................................
+Retry is a function that retries a specified number of times when an external service call fails.
+This is useful for overcoming failures due to temporary network outages or service instability.
+
+Retry application example code
+import io.github.resilience4j.retry.annotation.Retry;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MyRetryService {
+
+    @Retry(name = "myRetryService", fallbackMethod = "retryFallback")
+    public String callExternalServiceWithRetry() {
+        return "External service response";
+    }
+
+    public String retryFallback(Throwable t) {
+        return "Service is temporarily unavailable. Please try again later.";
+    }
+}
+application.yml
+.......................................
+resilience4j:
+  retry:
+    instances:
+      myRetryService:
+        maxAttempts: 3
+        waitDuration: 500ms
+
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      myCircuitBreaker:
+        sliding-window-size: 10
+        permitted-number-of-calls-in-half-open-state: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10000
+        register-health-indicator: true
+  timelimiter:
+    instances:
+      myCircuitBreaker:
+        timeout-duration: 3s
+
+
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        ringBufferSizeInClosedState: 5 # 熔断器关闭时的缓冲区大小
+        ringBufferSizeInHalfOpenState: 2 # 熔断器半开时的缓冲区大小
+        waitDurationInOpenState: 10000 # 熔断器从打开到半开需要的时间
+        failureRateThreshold: 60 # 熔断器打开的失败阈值
+        eventConsumerBufferSize: 10 # 事件缓冲区大小
+        registerHealthIndicator: true # 健康监测
+        automaticTransitionFromOpenToHalfOpenEnabled: false # 是否自动从打开到半开，不需要触发
+        recordFailurePredicate:    com.example.resilience4j.exceptions.RecordFailurePredicate
+        recordExceptions: # 记录的异常
+          - com.hyts.resilience4j.exceptions.Service1Exception
+          - com.hyts.resilience4j.exceptions.Service2Exception
+        ignoreExceptions: # 忽略的异常
+          - com.example.resilience4j.exceptions.BusinessAException
+    instances:
+      service1:
+        baseConfig: default
+        waitDurationInOpenState: 5000
+        failureRateThreshold: 20
+      service2:
+        baseConfig: default
+
+https://louchen.top/posts/SpringBoot_SpringCloud/SpringCloud%E7%B3%BB%E5%88%97/SpringCloud%E7%B3%BB%E5%88%97.html#_7%E3%80%81resilience4j

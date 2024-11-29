@@ -1,0 +1,398 @@
+@SpringBootApplication
+@EnableConfigServer
+public class ConfigServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigServiceApplication.class, args);
+    }
+}
+  <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-config-server</artifactId>
+        </dependency>
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-service
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/ShinMyeongJi/spring-cloud-with-msa.git
+          basedir: config
+          search-paths: dev, stg, prod
+          default-label: main
+		  clone-on-start: true
+		  force-pull: true
+		  timeout: 30
+          ignore-local-ssh-settings: true  ##https://velog.io/@lopahn2/Spring-Cloud-Config-Server
+		  #searchPaths:
+		    #- '{application}'
+			#- '{application}/*'
+
+
+
+
+management:
+  endpoint:
+    health:
+      show-details: never
+  endpoints:
+    web:
+      base-path: /servicemanager
+      exposure:
+        include: "*"
+
+
+
+<dependency>
+	<groupId>org.springframework.boot</groupId>
+	<artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+<dependency>
+	<groupId>org.springframework.cloud</groupId>
+	<artifactId>spring-cloud-starter-config</artifactId>
+</dependency>
+<dependency>
+	<groupId>org.springframework.cloud</groupId>
+	<artifactId>spring-cloud-starter-bootstrap</artifactId>
+</dependency>
+spring:
+  application:
+    name: config-client
+  cloud:
+    config:
+      discovery:
+        enabled: true
+        service-id: config-server
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, refresh, beans
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:19090/eureka/
+
+
+spring:
+  cloud:
+    config:
+      uri: http://127.0.0.1:8888
+      name: config-service
+
+
+spring:
+  profiles: dev
+
+  cloud:
+    config:
+      uri: "http://config.ch4njun.com:8888"
+      profile: ${spring.profiles.active}, sample-${spring.profiles.active}
+      label: develop
+
+---
+spring:
+  profiles: qa
+
+  cloud:
+    config:
+      uri: "http://config.ch4njun.com:8888"
+      profile: ${spring.profiles.active}, sample-${spring.profiles.active}
+      label: develop
+
+
+
+management:
+  endpoints:
+    enabled-by-default: false
+  endpoint:
+    info:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: refresh, health, beans, httptrace
+management.endpoints.web.exposure.include=*
+@RestController
+@RequestMapping(value = "/config")
+@RequiredArgsConstructor
+public class ConfigController {
+
+    private final ConfigService configService;
+
+    @GetMapping("/my-favorite")
+    public Map<String, String> getMyFavorite() {
+        return configService.getMyFavorite();
+    }
+
+}
+@Service
+@RefreshScope
+public class ConfigService {
+
+    @Value("${my.favorite.food}")
+    private String food;
+
+    @Value("${my.favorite.coffee}")
+    private String coffee;
+
+    public Map<String, String> getMyFavorite() {
+        Map<String, String> keyword = new HashMap<>();
+        keyword.put("food", food);
+        keyword.put("coffee", coffee);
+        return keyword;
+    }
+
+}
+
+@RestController
+@RequestMapping("/first-service")
+@RequiredArgsConstructor
+public class FirstserviceController {
+    private final Environment env;
+    @RequestMapping(value="/port-check", method = RequestMethod.GET)
+    public String portCheck(){
+        return env.getProperty("local.server.port") + "/" + env.getProperty("test.value");
+            // server.port로 쓰면 port번호가 0으로 나타난다.
+    }
+}
+
+
+
+
+
+spring:
+  profiles:
+    active: native
+  application:
+    name: config-server
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: classpath:/config-repo
+application.yml
+server:
+  port: 0  # 임시 포트, 이후 Config 서버 설정으로 덮어씌움
+
+spring:
+  profiles:
+    active: local # config 서버의 local yml 파일을 가져와서 실행, port와 message 변경될 것
+  application:
+    name: product-service
+  config:
+    import: "configserver:"
+  cloud:
+    config:
+      discovery:
+        enabled: true
+        service-id: config-server
+
+# acuator에서 refresh 활성화
+management:
+  endpoints:
+    web:
+      exposure:
+        include: refresh
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:19090/eureka/
+
+message: "default message" # 이 앱이 config를 타지 않았다면 0번 포트, default message
+
+
+
+spring:
+  cloud:
+    config:
+      name: bookdodum
+
+  config:
+    import: optional:configserver:http://localhost:8888
+
+
+
+	spring:
+  cloud:
+    config:
+      uri: http://localhost:8888
+      name: user
+      profile: dev
+
+
+
+spring:
+  application:
+    name: config-client
+  profiles:
+    active: development
+  config:
+    import: optional:configserver:http://localhost:8888
+
+management:
+  endpoints:
+    enabled-by-default: false
+    web:
+      exposure:
+        include: refresh
+  endpoint:
+    refresh:
+      enabled: true
+
+
+server:
+  port: 8081
+spring:
+  application:
+  	name: users-service
+
+  profiles:
+  	active: default
+
+  config:
+  	import: optiona:configserver:http://localhost:8888
+    name: users-service
+
+    Configuration information under the master branch
+    config-dev.yml
+    config-test.yml
+    config-prod.yml
+
+    Configuration information under the dev branch
+    config-dev.yml
+    config-test.yml
+    config-prod.yml
+
+
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-config-server</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-web</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+            </dependency>
+    @SpringBootApplication
+    @EnableDiscoveryClient
+    @EnableConfigServer
+    public class ConfigServerApplication {
+
+        public static void main(String[] args) {
+            SpringApplication.run(ConfigServerApplication.class, args);
+        }
+
+    }
+    spring.application.name=config-server
+    eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+
+    spring.cloud.config.label=master
+    spring.cloud.config.server.git.uri=https://github.com/ravan/config-repo
+    spring.cloud.config.server.git.username=github
+    spring.cloud.config.server.git.password=github
+    spring.cloud.config.server.git.basedir=config-repo/config-repo
+    spring.security:
+        user:
+          name: macro
+          password: 123456
+
+
+    /{label}/{application}-{profile}.yml
+
+
+
+    <dependency>
+    	<groupId>org.springframework.boot</groupId>
+    	<artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-config-client</artifactId>
+    </dependency>
+    bootstrap.yml
+    spring:
+      application:
+        name: order-service
+    spring:
+      cloud:
+        config:
+          name: order-service
+          label: master
+          profile: dev  ####http://config-3344.com:3344/master/order-service-dev.yml
+          discovery:
+            enabled: true
+            service-id: config-server
+    	 username: macro
+         password: 123456
+    eureka:
+      client:
+        service-url:
+          defaultZone: http://localhost:8001/eureka/
+
+    @SpringBootApplication
+    @EnableDiscoveryClient
+    public class ProductServiceApplication {
+
+        public static void main(String[] args) {
+            SpringApplication.run(ProductServiceApplication.class, args);
+        }
+
+    }
+
+    Config-sever cluster construction
+    In the microservice architecture, all services obtain configurations from the configuration center. Once the configuration center goes down, serious problems will occur. Let's build a two-node configuration center cluster to solve this problem.
+    Start two config-servers running on ports 8902 and 8903 respectively;
+
+    Add the configuration file bootstrap-cluster.yml of config-client, mainly adding the configuration of obtaining the configuration center address from the registration center and removing the configuration of the configuration center uri:
+    bootstrap-cluster.yml
+      cloud:
+        config:
+          profile: dev
+          label: dev
+          name: config
+          discovery:
+            enabled: true
+            service-id: config-server
+    eureka:
+      client:
+        service-url:
+          defaultZone: http://localhost:8001/eureka/
+
+
+
+
+
+
+
+
+
+
+
+
+    spring:
+      application:
+        name: config-client
+      cloud:
+        config:
+          label: master
+          name: config
+          profile: dev
+    	  fail-fast: true
+          uri: http://localhost:3344
+
+
+

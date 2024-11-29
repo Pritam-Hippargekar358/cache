@@ -1,0 +1,546 @@
+public class Example {
+    public static void main(String[] args) {
+        var github = Feign.builder()
+                .decoder(new GsonDecoder())
+                .retryer(new MyRetryer(100, 3))
+                .errorDecoder(new MyErrorDecoder())
+                .target(Github.class, "https://api.github.com");
+
+        var contributors = github.contributors("foo", "bar", "invalid_token");
+        for (var contributor : contributors) {
+            System.out.println(contributor.login + " " + contributor.contributions);
+        }
+    }
+
+    static class MyErrorDecoder implements ErrorDecoder {
+
+        private final ErrorDecoder defaultErrorDecoder = new Default();
+
+        @Override
+        public Exception decode(String methodKey, Response response) {
+            // wrapper 401 to RetryableException in order to retry
+            if (response.status() == 401) {
+                return new RetryableException(response.status(), response.reason(), response.request().httpMethod(), null, response.request());
+            }
+            return defaultErrorDecoder.decode(methodKey, response);
+        }
+    }
+
+    static class MyRetryer implements Retryer {
+
+        private final long period;
+        private final int maxAttempts;
+        private int attempt = 1;
+
+        public MyRetryer(long period, int maxAttempts) {
+            this.period = period;
+            this.maxAttempts = maxAttempts;
+        }
+
+        @Override
+        public void continueOrPropagate(RetryableException e) {
+            if (++attempt > maxAttempts) {
+                throw e;
+            }
+            if (e.status() == 401) {
+                // remove Authorization first, otherwise Feign will add a new Authorization header
+                // cause github responses a 400 bad request
+                e.request().requestTemplate().removeHeader("Authorization");
+                e.request().requestTemplate().header("Authorization", "Bearer " + getNewToken());
+                try {
+                    Thread.sleep(period);
+                } catch (InterruptedException ex) {
+                    throw e;
+                }
+            } else {
+                throw e;
+            }
+        }
+
+        // Access an external api to obtain new token
+        // In this example, we can simply return a fixed token to demonstrate how Retryer works
+        private String getNewToken() {
+            return "newToken";
+        }
+
+        @Override
+        public Retryer clone() {
+            return new MyRetryer(period, maxAttempts);
+        }
+}
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-openfeign</artifactId>
+</dependency>
+<properties>
+    <spring-cloud.version>Greenwich.BUILD-SNAPSHOT</spring-cloud.version>
+</properties>
+<dependencyManagement>
+    <dependencies>
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+    </dependency>
+    </dependencies>
+</dependencyManagement>
+
+@SpringBootApplication
+@EnableFeignClients
+public class OrderProcessingServiceApplication {
+
+		public static void main(String[] args) {
+				SpringApplication.run (OrderProcessingServiceApplication.class, args);
+			}
+
+}
+@Component
+public class CustomErrorDecoder implements ErrorDecoder {
+    @Override
+    public Exception decode(String methodKey, Response response) {
+
+        switch (response.status()){
+            case 400:
+                return new BadRequestException();
+            case 404:
+                return new NotFoundException();
+            default:
+                return new Exception("Generic error");
+        }
+    }
+}
+@Component
+public class AuthFeignInterceptor implements RequestInterceptor {
+    //private static final String TOKEN_REQUEST_PARAM = "token";
+   //@Value("${app.user.token}")
+   //private String token;
+
+    @Override
+    public void apply(RequestTemplate template) {
+        final RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+        if (requestAttributes != null) {
+            final HttpServletRequest httpServletRequest = ((ServletRequestAttributes) requestAttributes).getRequest();
+            template.header(HttpHeaders.AUTHORIZATION, httpServletRequest.getHeader(HttpHeaders.AUTHORIZATION));
+			//template.query(TOKEN_REQUEST_PARAM, token)
+        }
+    }
+}
+public class ClientConfiguration {
+
+    @Bean
+    Logger.Level feignLoggerLevel() {
+        return Logger.Level.BASIC;
+    }
+}
+
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 5000
+        loggerLevel: basic
+
+
+
+
+@FeignClient(name = "account-service", configuration = FeignClientConfiguration.class)
+public interface AccountService {
+    @GetMapping("/accounts")
+    ResponseEntity<Account> readByAccountNumber(@RequestParam String accountNumber);
+
+    @PutMapping("/accounts")
+    ResponseEntity<Response> updateAccount(@RequestParam String accountNumber, @RequestBody Account account);
+}
+
+private HttpHeaders getHeaders(final HttpServletRequest httpServletRequest) {
+        var iterator = httpServletRequest.getHeaderNames().asIterator();
+        final HttpHeaders headers = new HttpHeaders();
+        while (iterator.hasNext()) {
+            var key = iterator.next();
+            headers.add(key, httpServletRequest.getHeader(key));
+        }
+        return headers;
+    }
+
+//@FeignClient(url = "${app.user.url}", name = "userClient")
+@FeignClient(name = "account-service", configuration = FeignClientConfiguration.class)
+public interface AccountService {
+    // Read: Get account details by account number
+    @GetMapping("/accounts")
+    ResponseEntity<Account> readByAccountNumber(@RequestParam String accountNumber);
+
+    // Create: Create a new account
+    @PostMapping("/accounts")
+    ResponseEntity<Account> createAccount(@RequestBody Account account);
+
+    // Update: Update an existing account
+    @PutMapping("/accounts")
+    ResponseEntity<Account> updateAccount(@RequestParam String accountNumber, @RequestBody Account account);
+
+    // Delete: Delete an account by account number
+    @DeleteMapping("/accounts")
+    ResponseEntity<Void> deleteAccount(@RequestParam String accountNumber);
+}
+
+ @DeleteMapping("{id}")
+    void deleteUser(@PathVariable("id") long userId);
+
+
+	import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
+public class DateUtils {
+    public static String formatDate(LocalDate date) {
+        return date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+}
+}
+@Getter
+public class ClientConfig {
+
+    public static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+            .registerModule(new Jdk8Module())
+            .registerModule(new JavaTimeModule())
+            .enable(SerializationFeature.INDENT_OUTPUT)
+            .setSerializationInclusion(Include.NON_NULL);
+}
+
+
+1 call + 3 retries = 4 attempts
+1500 millis before a first retry (1000 * 1.5 = 1500)
+2000 millis before a second retry (1500 * 1.5 = 2250)
+2000 millis before a third retry
+
+@Configuration
+@EnableFeignClients(basePackages = "com.polovyi.ivan.client")
+public class FeignConfigs {
+
+    @Bean
+    public Logger.Level loggerLevel() {
+        return Logger.Level.FULL;
+    }
+
+    @Bean
+    public Retryer retryer() {
+        return new Default(1000, 2000, 4);
+    }
+
+    @Bean
+    public Options options() {
+        return new Options(5, TimeUnit.SECONDS, 10, TimeUnit.SECONDS, true);
+    }
+
+    @Bean
+    public RequestInterceptor basicAuthRequestInterceptor() {
+        return new BasicAuthRequestInterceptor("username", "password");
+    }
+}
+import static feign.FeignException.errorStatus;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import feign.FeignException;
+import feign.Response;
+import feign.RetryableException;
+import feign.codec.ErrorDecoder;
+import java.io.IOException;
+import lombok.RequiredArgsConstructor;
+@RequiredArgsConstructor
+public class CustomErrorDecoder implements ErrorDecoder {
+
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public Exception decode(String methodKey, Response response) {
+        try {
+            if (response.status() > 499) {
+                FeignException feignException = errorStatus(methodKey, response);
+                return new RetryableException(
+                        response.status(),
+                        feignException.getMessage(),
+                        response.request().httpMethod(),
+                        feignException,
+                        null,
+                        response.request()
+                );
+            }
+
+            String responseAsString = new String(response.body()
+                    .asInputStream().readAllBytes(), "UTF-8");
+            ClientExceptionDetails clientExceptionDetails = objectMapper
+                    .readValue(responseAsString, ClientExceptionDetails.class);
+            clientExceptionDetails.setMethod(methodKey);
+            throw new ClientException(clientExceptionDetails);
+        } catch (IOException e) {
+            throw new RuntimeException("Error occurred while decoding error response.", e);
+        }
+    }
+}
+
+import feign.RetryableException;
+import feign.Retryer;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+public class CustomRetryer implements Retryer {
+
+    @Override
+    public void continueOrPropagate(RetryableException e) {
+        int status = e.status();
+        if (status == 501) {
+            throw e;
+        }
+
+        try {
+            TimeUnit.SECONDS.sleep(2);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw e;
+        }
+    }
+
+    @Override
+    public Retryer clone() {
+        return new CustomRetryer();
+    }
+}
+
+
+
+<dependency>
+    <groupId>org.springframework.retry</groupId>
+    <artifactId>spring-retry</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-openfeign</artifactId>
+</dependency>
+@SpringBootApplication
+@EnableFeignClients
+@EnableRetry
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
+
+Application.yml
+feign:
+  client:
+    config:
+      default:
+        retryer:
+          maxAttempts: 5
+          backoff:
+            period: 200
+            maxPeriod: 2000
+2. Application.properties
+
+feign.client.config.default.retryer.maxAttempts=5
+feign.client.config.default.retryer.backoff.period=200
+feign.client.config.default.retryer.backoff.maxPeriod=2000
+
+import feign.RetryableException;
+import feign.Retryer;
+
+public class CustomRetryer implements Retryer {
+    private final int maxAttempts;
+    private final long backoff;
+    private int attempt = 1;
+
+    public CustomRetryer() {
+        this(2000, 3);
+    }
+
+    public CustomRetryer(long backoff, int maxAttempts) {
+        this.backoff = backoff;
+        this.maxAttempts = maxAttempts;
+    }
+
+    @Override
+    public void continueOrPropagate(RetryableException e) {
+        if (attempt++ >= maxAttempts) {
+            throw e;
+        }
+
+        try {
+            Thread.sleep(backoff);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Override
+    public Retryer clone() {
+        return new CustomRetryer(backoff, maxAttempts);
+    }
+}
+
+@Configuration
+public class FeignConfig {
+    @Bean
+    public Retryer retryer() {
+        return new CustomRetryer();
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@Configuration
+@Slf4j
+public class FeignRequestInterceptor implements RequestInterceptor {
+    @Override
+    public void apply(RequestTemplate template) {
+        HttpServletRequest httpServletRequest =   getHttpServletRequest();
+        if(httpServletRequest!=null){
+            Map<String, String> headers = getHeaders(httpServletRequest);
+            // 传递所有请求头,防止部分丢失
+            //此处也可以只传递认证的header
+            //requestTemplate.header("Authorization", request.getHeader("Authorization"));
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                template.header(entry.getKey(), entry.getValue());
+            }
+            log.debug("FeignRequestInterceptor:{}", template.toString());
+        }
+    }
+
+
+    private HttpServletRequest getHttpServletRequest() {
+        try {
+            return ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes()).getRequest();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 获取原请求头
+     */
+    private Map<String, String> getHeaders(HttpServletRequest request) {
+        Map<String, String> map = new LinkedHashMap<>();
+        Enumeration<String> enumeration = request.getHeaderNames();
+        if(enumeration!=null){
+            while (enumeration.hasMoreElements()) {
+                String key = enumeration.nextElement();
+                String value = request.getHeader(key);
+                map.put(key, value);
+            }
+        }
+        return map;
+    }
+}
+
+spring:
+  cloud:
+    openfeign:
+      client:
+        config:
+          default:                   # 공통 설정
+            connect-timeout: 5000    # default : 1000
+            read-timeout: 30000       # default : 60000
+            logger-level: BASIC
+          openFeignClient:           # 특정 Feign Client 설정
+            connect-timeout: 1000
+            read-timeout: 20000
+            logger-level: FULL
+    @Bean
+    Retryer.Default openFeinClientRetryer() {
+        return new Retryer.Default(
+                period,                               // default : 100
+                TimeUnit.SECONDS.toMillis(duration),  // default : 1L
+                maxAttempt                            // default : 5
+        );
+    }
+
+	spring:
+	cloud:
+		openfeign:
+			client:
+				config:
+					feignName:
+                        url: http://remote-service.com
+						connectTimeout: 5000
+						readTimeout: 5000
+						loggerLevel: full
+						errorDecoder: com.example.SimpleErrorDecoder
+						retryer: com.example.SimpleRetryer
+						defaultQueryParameters:
+							query: queryValue
+						defaultRequestHeaders:
+							header: headerValue
+						requestInterceptors:
+							- com.example.FooRequestInterceptor
+							- com.example.BarRequestInterceptor
+						responseInterceptor: com.example.BazResponseInterceptor
+						dismiss404: false
+						encoder: com.example.SimpleEncoder
+						decoder: com.example.SimpleDecoder
+						contract: com.example.SimpleContract
+						capabilities:
+							- com.example.FooCapability
+							- com.example.BarCapability
+						queryMapEncoder: com.example.SimpleQueryMapEncoder
+						micrometer.enabled: false
+
+
+
+
+						management:
+ endpoint:
+ shutdown:
+ enabled: true
+ endpoints:
+ web:
+ exposure:
+ include: "*"
+
+
+
+@FeignClient(name = "taskmng-task", fallbackFactory = UserFeignClientFallbackFactory.class)
+public interface UserFeignClient {
+	@PostMapping(value =  "/tasks/{taskId}", consumes = "application/x-www-form-urlencoded")
+	void deleteTask(@PathVariable String taskId, DeleteTaskRequest request);
+}
+
+private final UserFeignClient userFeignClient;
+@Transactional
+public void deleteTask(DeleteTaskRequest request) throws Exception {
+    userFeignClient.deleteTask(request.getTaskId(), request);
+}
+
+public class UserFeignClientFallback implements UserFeignClient{
+	@Override
+	public void deleteTask(String taskId, DeleteTaskRequest request) {
+    	log.debug("TaskService Error fallback");
+	}
+}
+
+@Slf4j
+@Component
+public class UserFeignClientFallbackFactory implements FallbackFactory<UserFeignClient>{
+  @Override
+  public UserFeignClient create(Throwable cause) {
+    return new UserFeignClient() {
+      @Override
+      public void deleteTask(String taskId, DeleteTaskRequest request) {
+        log.debug("★ Fallback reason was: " + cause.getMessage());
+      }
+    };
+  }
+}

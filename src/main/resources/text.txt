@@ -1,0 +1,101 @@
+@AutoConfigureMockMvc
+@SpringBootTest
+public class FooControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    public void testGet() throws Exception {
+        MockHttpServletRequestBuilder builder = MockMvcRequestBuilders.get("/foo?name=ravan");
+
+        ResultActions resultActions = mockMvc.perform(builder);
+
+        MockHttpServletResponse response = resultActions.andReturn().getResponse();
+        response.setCharacterEncoding("UTF-8");
+
+        resultActions.andExpect(MockMvcResultMatchers.status().is2xxSuccessful());
+
+        String result = response.getContentAsString();
+        User user = JSON.parseObject(result, User.class);
+        MatcherAssert.assertThat(user.getName(), CoreMatchers.is("ravan"));
+    }
+
+}
+ObjectMapper mapper = new ObjectMapper();
+String content = mapper.writeValueAsString(new User("ravan"));
+MockHttpServletRequestBuilder postRequest = MockMvcRequestBuilders.post("/foo")
+                .queryParam("key", "value")
+                .header("Authorization","Bearer ********-****-****-****-************")
+				.cookie(new Cookie("cookieName","value"))
+				.sessionAttr("sessionName","value")
+                .accept(MediaType.APPLICATION_JSON)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(new User("ravan")).getBytes(StandardCharsets.UTF_8));
+
+
+ResultActions resultActions = mockMvc.perform(postRequest);
+resultActions.andReturn().getResponse().setCharacterEncoding("UTF-8");
+MvcResult mvcResult = mockMvc.perform(postRequest).andReturn();
+
+Exception exception = mvcResult.getResolvedException();
+assertThat(exception.getClass()).isEqualTo(MagazineNotExistException.class);
+
+String json = mvcResult.getResponse().getContentAsString();
+User actual = mapper.readValue(json, User.class);
+//List<User> actuals = mapper.readValue(json, new TypeReference<>(){});
+
+.andExpect(result -> assertTrue(result.getResolvedException() instanceof ResourceNotFoundException))
+.andExpect(result -> assertEquals("resource not found", result.getResolvedException().getMessage()));
+
+
+
+https://adjh54.tistory.com/592
+
+Object result = mockMvc.perform(get("/api/data"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getAsyncResult();
+
+
+FlashMap flashMap = mockMvc.perform(post("/api/submit")
+                .flashAttr("data", data))
+                .andExpect(status().isFound())
+                .andReturn()
+                .getFlashMap();
+
+
+Object handler = mockMvc.perform(get("/api/hello"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getHandler();
+
+
+HandlerInterceptor[] interceptors = mockMvc.perform(get("/api/data"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getInterceptors();
+
+
+ModelAndView mav = mockMvc.perform(get("/api/data"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getModelAndView();
+
+
+MockHttpServletRequest request = mockMvc.perform(get("/api/data"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getRequest();
+
+
+MockHttpServletResponse response = mockMvc.perform(get("/api/data"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse();
+
+
+Exception resolvedException = mockMvc.perform(get("/api/data"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResolvedException();

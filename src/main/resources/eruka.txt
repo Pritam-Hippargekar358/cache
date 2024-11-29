@@ -1,0 +1,23 @@
+@EnableEurekaServer
+@SpringBootApplication
+public class EurekaApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaApplication.class, args);
+    }
+}
+https://louchen.top/posts/SpringBoot_SpringCloud/SpringCloud%E7%B3%BB%E5%88%97/SpringCloud%E7%B3%BB%E5%88%97.html#_2%E3%80%81%E6%9C%8D%E5%8A%A1%E6%B3%A8%E5%86%8C%E4%B8%AD%E5%BF%83-eureka
+spring:
+  application:
+    name: eureka
+server:
+  port: 1111
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+
+
+	Service renewal has two related properties (usually not recommended to modify):
+.............................................................
+eureka.instance.lease-renewal-interval-in-seconds=30
+eureka.instance.lease-expiration-duration-in-seconds=90
